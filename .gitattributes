@@ -1,0 +1,9 @@
+* text=auto
+*.yaml text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf
+*.ini text eol=lf
+*.pgm binary
+*.sh text eol=lf
+Dockerfile text eol=lf
+.env.example text eol=lf

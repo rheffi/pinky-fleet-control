@@ -1,0 +1,66 @@
+:root {
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    color: #202824;
+    background: #f5f6f2;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible { outline: 3px solid #409174; outline-offset: 5px; }
+.shell { width: min(1120px, calc(100% - 64px)); margin: auto; }
+.topbar { min-height: 100px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #dde2d9; gap: 20px; }
+.brand { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 8px; font-size: 17px; }
+.brand strong { font-weight: 600; }
+.brand-mark { display: grid; place-items: center; background: #d6ead7; color: #22533d; font-weight: 750; width: 34px; height: 34px; border-radius: 11px; margin-right: 6px; }
+.context-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #627165; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #889c86; }
+.intro { padding: 65px 0 38px; }
+.eyebrow { font-size: 11px; letter-spacing: 1.9px; font-weight: 700; color: #687d6d; margin: 0 0 14px; }
+h1 { font-size: clamp(32px, 4vw, 46px); font-weight: 650; line-height: 1.3; letter-spacing: -2px; margin: 0 0 16px; }
+.intro-copy { color: #6a756e; font-size: 15px; line-height: 1.8; margin: 0; }
+.status-panel { background: #fff; border: 1px solid #dde3da; border-radius: 20px; padding: 30px; box-shadow: 0 8px 24px #263c2a04; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+.panel-heading .eyebrow { margin-bottom: 7px; font-size: 10px; }
+h2 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.5px; }
+button { font: inherit; font-size: 13px; color: #345b43; background: #f2f6ef; border: 1px solid #dce5d7; border-radius: 9px; padding: 11px 16px; cursor: pointer; display: flex; align-items: center; gap: 16px; }
+button:hover:not(:disabled) { background: #e7efe2; }
+button:disabled { opacity: .55; cursor: wait; }
+button span { font-size: 19px; line-height: 1; }
+.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.status-card { border: 1px solid #e3e8de; border-radius: 12px; padding: 23px; background: #fcfdfb; min-width: 0; }
+.card-index { color: #84917e; font-size: 10px; letter-spacing: 1.1px; font-weight: 650; }
+h3 { font-size: 15px; font-weight: 500; margin: 17px 0 20px; }
+.status-value { font-size: 26px; font-weight: 600; letter-spacing: -.7px; margin: 0 0 9px; }
+.status-value.success { color: #257150; }
+.status-value.failure { color: #a15133; }
+.muted { color: #899187; }
+.card-description { color: #84907f; font-size: 12px; line-height: 1.7; margin: 0; }
+.neutral { background: #f7f8f5; }
+.panel-footer { margin-top: 23px; display: flex; gap: 14px; color: #889181; font-size: 11px; flex-wrap: wrap; }
+.panel-footer time { color: #626f62; }
+.error-message { color: #9c4829; background: #fff3eb; padding: 14px; border-radius: 8px; font-size: 13px; line-height: 1.8; }
+.next-section { display: flex; align-items: center; gap: 18px; margin: 25px 0 60px; padding: 24px 0; }
+.next-icon { display: grid; place-items: center; border: 1px solid #dce4d6; color: #6e8867; font-size: 23px; min-width: 42px; height: 42px; border-radius: 50%; }
+.next-section h2 { font-size: 14px; margin-bottom: 7px; }
+.next-section p { margin: 0; color: #7b8576; font-size: 12px; line-height: 1.8; }
+.step-label { margin-left: auto; flex-shrink: 0; color: #85917f; font-size: 10px; letter-spacing: 1.2px; }
+.page-footer { border-top: 1px solid #dde2d9; display: flex; gap: 20px; justify-content: space-between; padding: 25px 0 35px; color: #919a8c; font-size: 10px; }
+.page-footer span:first-child { letter-spacing: 1.3px; }
+@media (max-width: 700px) {
+    .shell { width: calc(100% - 32px); }
+    .topbar { min-height: 80px; }
+    .brand { font-size: 13px; gap: 5px; }
+    .context-label { font-size: 10px; }
+    .intro { padding-top: 40px; }
+    .intro-copy { font-size: 13px; }
+    .status-panel { padding: 20px; }
+    .status-grid { grid-template-columns: 1fr; }
+    .status-card { padding: 20px; }
+    h3 { margin: 12px 0; }
+    .step-label { display: none; }
+    .next-section { align-items: flex-start; margin-bottom: 25px; }
+    .page-footer { flex-direction: column; gap: 10px; }
+}

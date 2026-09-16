@@ -140,7 +140,7 @@
 | 앱 개발환경 | Laravel·Vue·MySQL 실행, API·DB·HMR·재시작 데이터 유지·배포 빌드 확인. 자동 테스트 4개 통과 |
 | 샘플 관제 | 3대 상태·목표·경로·작업·이벤트 구현. 정상 완료·정지, 동시 요청·재요청, 통신 실패·실행기 재시작·데이터 유지, PHP/JS 테스트·빌드 확인 |
 | 알고리즘 통합·실물 시험 | 신규 1cm 지도와 Nav2 파라미터가 Domain 40에서 실제 로드되고 lifecycle 노드가 active인 것까지 확인. 번들 제공자의 좁은 슬롯 ABORT 문제는 미해결 |
-| 팀 Git 저장소 | 로컬 저장소 준비 진행, 원격 주소 미정·게시 미수행 |
+| 팀 Git 저장소 | 비공개 `rheffi/pinky-fleet-control`, `main` 게시·추적 설정 완료 |
 
 ## 10. 문서 작성과 다음 작업
 
@@ -174,7 +174,8 @@
 
 | 날짜 | 수행 내용 | 결과 |
 |---|---|---|
-| 2026-09-16 | Ubuntu 24.04 관제서버 Git 인계 준비 | 04 문서에 Git·운영 Docker·오프라인·단일 로봇 연결 순서와 Ubuntu Codex 전달 프롬프트 작성. 로컬 main 첫 커밋·추적 제외·비밀 패턴 검사 및 오프라인 Git bundle 검증 후 원격 주소 수령 대기 |
+| 2026-09-16 | 팀 GitHub 저장소 생성·게시 | 비공개 `rheffi/pinky-fleet-control` 생성, 로컬 `origin` 연결, `main` push·upstream 설정 완료 |
+| 2026-09-16 | Ubuntu 24.04 관제서버 Git 인계 준비 | 04 문서에 Git·운영 Docker·오프라인·단일 로봇 연결 순서와 Ubuntu Codex 전달 프롬프트 작성. 로컬 main 첫 커밋·추적 제외·비밀 패턴 검사 및 오프라인 Git bundle 검증 완료 |
 | 2026-09-16 | 수령한 1cm 지도·Nav2 번들 적용 상태 확인 | 로봇의 src/install 파라미터와 로컬 수령 파일 SHA-256 일치. 실행 지도 140x205@0.01m, local/global inflation 0.12·scaling 3.0·padding 0.01, 주요 lifecycle 노드 active 확인. 번들 자체의 좁은 슬롯 ABORT 이슈는 미해결 |
 | 2026-09-16 | Domain 40 단일 로봇 주행 안정화 설정·시험 시나리오 작성 | Pinky 설치 파라미터에 global inflation 0.15/3.0, planner tolerance 0.10·unknown 차단, AMCL 갱신 0.02m/0.05rad·수동 초기 위치를 반영하고 원격 백업 생성. 현재 실행 노드는 이전 값을 사용 중이므로 Nav2 재시작·T0~T7 실물 검증 대기 |
 | 2026-09-16 | 컨테이너 재시작 후 Nginx 502 수정 | Nginx가 Docker DNS를 1초 주기로 다시 조회하도록 변경. app IP를 172.19.0.3에서 172.19.0.6으로 바꾸고 web 재시작 없이 API·DB 정상 응답 확인 |

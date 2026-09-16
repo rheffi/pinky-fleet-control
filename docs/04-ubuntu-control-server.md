@@ -42,7 +42,7 @@
 5. 첫 커밋을 만든다.
 6. 팀에서 정한 원격 저장소 주소를 받은 뒤 `origin`을 추가하고 push한다.
 
-원격 저장소 주소가 정해지기 전까지 로컬 Git 저장소만 준비한다. 저장소 주소나 인증 토큰을 문서에 기록하지 않는다.
+팀 저장소는 비공개 GitHub 저장소 `rheffi/pinky-fleet-control`을 사용한다. 인증 토큰은 문서에 기록하지 않는다.
 
 원격 저장소가 늦어질 경우 프로젝트 루트의 `artifacts/pinky-fleet-control-main.bundle`을 USB로 전달할 수 있다. `artifacts/`는 Git 추적 대상이 아니다.
 
@@ -54,14 +54,14 @@ git bundle verify artifacts/pinky-fleet-control-main.bundle
 ### 원격 저장소가 정해진 뒤 실행할 명령
 
 ```powershell
-git remote add origin <팀-원격-저장소-주소>
+git remote add origin https://github.com/rheffi/pinky-fleet-control.git
 git push -u origin main
 ```
 
 ### Ubuntu에서 받을 명령
 
 ```bash
-git clone <팀-원격-저장소-주소> ~/pinky-fleet-control
+git clone https://github.com/rheffi/pinky-fleet-control.git ~/pinky-fleet-control
 cd ~/pinky-fleet-control
 git status --short --branch
 ```
@@ -185,5 +185,5 @@ docs/04-ubuntu-control-server.md와 README.md에 갱신하라. 완료 표시는 
 - Ubuntu 24.04 사용은 사용자 확인 사항이다.
 - 선택한 1cm 지도는 `map/`, 현재 Nav2 파라미터는 `robot/pinky_navigation/params/`에 포함한다.
 - 운영용 Compose와 Ubuntu 실배포는 아직 수행하지 않았다.
-- 원격 Git 저장소 주소는 아직 정해지지 않았다.
-- Git 초기화·추적 파일 검사·첫 커밋과 오프라인 전달용 bundle 검증 결과는 README에 남긴다.
+- 비공개 GitHub 저장소 `rheffi/pinky-fleet-control`의 `main`에 게시했다.
+- Git 초기화·추적 파일 검사·첫 커밋·원격 push와 오프라인 전달용 bundle 검증 결과는 README에 남긴다.

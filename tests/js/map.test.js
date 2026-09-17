@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { worldToPixel, pathPoints } from '../../resources/js/fleet/map.js';
+import { worldToPixel } from '../../resources/js/fleet/map.js';
 
 const map = { id: 'test', version: '2', frame_id: 'map', width_px: 600, height_px: 400,
     resolution_m_per_pixel: 0.01, origin: { x_m: 1, y_m: 2, yaw_rad: Math.PI / 2 } };
@@ -19,5 +19,4 @@ test('unknown, nonfinite, or mismatched positions are hidden', () => {
     assert.equal(worldToPixel({ ...pose, map_version: '1' }, map), null);
     assert.equal(worldToPixel({ ...pose, x_m: NaN }, map), null);
     assert.equal(worldToPixel({ ...pose, frame_id: 'odom' }, map), null);
-    assert.equal(pathPoints([pose, { ...pose, map_id: 'other' }], map), '');
 });

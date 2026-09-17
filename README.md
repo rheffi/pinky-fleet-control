@@ -85,7 +85,7 @@
 |---|---|---|---|
 | 1 | 현재 노트북 Docker·WSL2 확인, 버전 선정, Laravel·Vue·MySQL 구성 | 화면 열림, API 응답, DB 저장·재시작 후 유지 확인 | 완료 — E1~E7 및 결과 기록 완료 |
 | 2 | 샘플 데이터로 최소 관제 API·화면 구현 | 3대 표시, 목표 선택, 작업·상태 흐름 확인 | 완료 — F1~F6, PHP 17개·JS 4개·빌드·실행기/전체 서비스 재시작 확인 |
-| 3 | Ubuntu·Docker 준비, 최소 관제 조기 배포, 한 대 API 연결 | Ubuntu 관제에 실제 로봇 상태 표시 | 진행 — Ubuntu 24.04 확정, Git 인계·Ubuntu Codex 실행계획 준비 |
+| 3 | Ubuntu·Docker 준비, 최소 관제 조기 배포, 한 대 API 연결 | Ubuntu 관제에 실제 로봇 상태 표시 | 진행 — 공식 Docker와 운영 관제 배포·DB·HTTP·복구 검증 완료, 재부팅·실제 인터넷 차단·로봇 연결 대기 |
 | 4 | 공통 지도 등록, 좌표 검증, 한 대 고정 목표 주행 | 관제에서 시작해 실제 도착·정지 확인 | 진행 — 1cm 지도·신규 Nav2 번들 설치 및 Domain 40 실행값 확인, 번들 README의 좁은 슬롯 ABORT 이슈는 미해결 |
 | 5 | 팀원 알고리즘 연결, 경로·대기의 실제 실행 처리 | 한 대가 계획 단계·대기를 따르는지 대조 | 대기 |
 | 6 | 두 대 검증 후 세 대 통합 | 공용 구간 대기·통과, 지연·정지 처리 확인 | 대기 |
@@ -133,10 +133,10 @@
 |---|---|
 | 프로젝트 방향 | Docker 개발, Ubuntu 배포, 내부망 시연으로 합의 |
 | 폼 미로·공유기·로봇 3대 | 준비됨 — 사용자 보고 |
-| 공통 지도 | 140×205 px, 0.01m/px 수령본을 `map/`에 반영. 원점 `[-0.209, -1.738, 0]`, 실제 코스 일치 여부를 계속 검증 |
+| 공통 지도 | 2026-09-16 20:07 교체본 147×207 px, 0.01m/px, 원점 `[-0.338, -1.761, 0]`, 버전 `b82b34d23d60`. 관제 PNG·env·운영 이미지 재빌드·반출 tar 반영 완료, 로봇 지도 동기화·실제 코스 일치 검증 대기. 이전본은 `map/cbs_map_bk*.pgm` |
 | 현재 노트북 | Windows 11 Pro. Docker Desktop 4.43.1·CLI/Server 28.3.0·Compose v2.38.1. Linux 엔진 연결 및 hello-world 다운로드·실행 성공. 기존 PHP 7.4는 유지 |
 | WSL2 | WSL 2.5.9.0. Ubuntu-24.04(기본)·Ubuntu-22.04·docker-desktop 모두 VERSION 2 등록 확인. 최초 조회 시 정지 상태였고, 이후 Docker Linux 엔진 실행 검증 완료 |
-| 5080 노트북 | Ubuntu 24.04 사용 확정. Docker·운영 배포는 해당 노트북의 Codex에서 진행 예정 |
+| 5080 노트북 | Ubuntu 24.04.5 LTS·x86_64. 공식 Docker 29.8.1·Compose 5.5.1 설치, 운영 web·app·mysql 배포와 migration·seed·HTTP·DB 보존·Docker 데몬 복구 검증 완료. ROS 2 Jazzy Desktop·Nav2, Pinky Studio 0.2.3 설치, 로컬 DDS 시험, 공식 PinkyPro 워크스페이스와 프로젝트 지도·파라미터 빌드 완료. Domain 40 실물 로봇 연결 대기 |
 | 앱 개발환경 | Laravel·Vue·MySQL 실행, API·DB·HMR·재시작 데이터 유지·배포 빌드 확인. 자동 테스트 4개 통과 |
 | 샘플 관제 | 3대 상태·목표·경로·작업·이벤트 구현. 정상 완료·정지, 동시 요청·재요청, 통신 실패·실행기 재시작·데이터 유지, PHP/JS 테스트·빌드 확인 |
 | 알고리즘 통합·실물 시험 | 신규 1cm 지도와 Nav2 파라미터가 Domain 40에서 실제 로드되고 lifecycle 노드가 active인 것까지 확인. 번들 제공자의 좁은 슬롯 ABORT 문제는 미해결 |
@@ -144,7 +144,7 @@
 
 ## 10. 문서 작성과 다음 작업
 
-**샘플 관제 구현·검증을 완료했다.** 다음 단계는 Ubuntu 조기 배포와 실제 로봇 한 대 상태 연결을 위한 배포 구성·인터페이스 확인이다. 공통 지도와 로봇 API 응답을 받아 실제 좌표·목표 연동 범위를 정한다.
+**Ubuntu 관제 웹 배포와 ROS 관제 PC 준비를 완료했다.** 다음 단계는 `62b2`를 같은 Wi-Fi의 Domain 40에 연결해 실제 노드·토픽·액션을 수집하고, 그 결과로 상태 어댑터 인터페이스를 확정하는 것이다.
 
 검증 중 테스트 DB 격리 오류로 기존 개발 DB의 샘플 작업 이력·환경 확인값이 초기화됐다. 테스트 bootstrap에서 모든 환경변수 출처를 SQLite 메모리 DB로 고정하고, migration 전에 잘못된 DB 연결을 거부하도록 수정했다. 이전 이력은 복구하지 못했으며 이후 새 샘플 데이터로 테스트·재시작 보존을 확인했다. 상세 기록은 02 문서 5.4에 남긴다.
 
@@ -160,6 +160,10 @@
 
 ### 현재 단계 문서
 
+[06. 오프라인 공유기 현장 통합 시험 시나리오](docs/06-offline-router-field-test.md) — 인터넷 없는 공유기에 관제 노트북·로봇 3대 연결, `localhost:8080` 관제로 순차 주행·정지·통신 끊김·재부팅 복구 시험(C1~C10, F1~F10). 시나리오 작성만 완료, 시험 미수행.
+
+[05. 관제서버 상황 보고 테스트 시나리오](docs/05-status-reporting-test.md) — 실행기 보고 → API·DB·화면 전달 검증. 자동(A)·가짜 실행기(B)·실물(C) 수준별 S0~S19와 정적 검토 위험 R1~R7. 시나리오 작성만 완료, 시험 미수행.
+
 [04. Ubuntu 관제서버 배포 준비와 인계](docs/04-ubuntu-control-server.md) — Git 인계 절차, Ubuntu 24.04 운영 Docker 배포 순서·완료 기준, Ubuntu Codex 전달 프롬프트.
 
 [03. 단일 로봇 Nav2 주행 안정화 테스트](docs/03-single-robot-navigation-test.md) — Domain 40 로봇 시험 설정, AMCL 수렴 기준, 직선·코너·웨이포인트 단계별 시나리오. 설정 파일 반영 완료, Nav2 재시작과 실물 시험 결과 기록 대기.
@@ -174,6 +178,17 @@
 
 | 날짜 | 수행 내용 | 결과 |
 |---|---|---|
+| 2026-09-16 | 로봇 실행기 3개 실행 | 새 지도 버전 env로 62b2(D40)·648d(D30)·eed0(D35) 실행기를 백그라운드 실행, 로그 `~/pinky-fleet-agent-logs/`. 앱 토큰 일치, telemetry·command 요청 모두 HTTP 200 확인. 로봇이 같은 네트워크에 없어 세 대 모두 offline 표시(정상). 로봇 지도는 사용자 확인으로 복사 생략 |
+| 2026-09-16 | 새 지도로 운영 이미지 재빌드·검증 | `up --build --wait`로 app·web 재생성, 세 서비스 healthy·DB 유지. bootstrap 지도 `b82b34d23d60`·147×207·원점 `[-0.338,-1.761,0]`, 제공 PNG가 원본과 바이트 일치, app 컨테이너 env 버전 일치. `artifacts/` 이미지 tar(470MB)·SHA-256 재생성 검증. PHP 테스트 14개(107 assertions) 통과. 실행기는 실행 중이 아니었고, 로봇 IP 미확인으로 로봇 지도 복사는 미수행 |
+| 2026-09-16 | 공통 지도 교체 반영 | 새 `cbs_map.pgm`(147×207, `b82b34d23d60`)에서 `public/maps/cbs_map.png` 재생성, yaml `image`를 `cbs_map.pgm`으로 수정, `.env`·`deploy/production.env` 지도 버전 갱신, FleetTest 지도 크기 기대값 수정. 운영 이미지 재빌드·테스트 실행·로봇 지도 복사는 미수행 |
+| 2026-09-16 | 오프라인 공유기 현장 통합 시험 시나리오 작성 | 06 문서 추가. 현재 관제는 한 번에 한 대만 주행 가능하므로 3대 순차 시연 기준으로 구성. 공유기 AP 격리·멀티캐스트, 로봇 시각, 목표 좌표 실측·env 반영, `--pull never` 기동 절차 포함. 시험 미수행 |
+| 2026-09-16 | 관제서버 상황 보고 테스트 시나리오 작성 | 05 문서 추가. 코드 정적 검토로 신선도·도착·정지 판정 규칙 정리, AMCL 중단 시 online 유지(R1)·보고 끊긴 작업 무기한 활성(R4)·지도 범위 미검사(R6) 등 확인 필요 사항 도출. 시험·코드 변경 미수행 |
+| 2026-09-16 | 관제 환경변수 구성 | Git에서 제외된 루트·운영 `.env`를 권한 600으로 작성하고 현재 지도 해시, 지도 프레임, 세 로봇 Domain을 연결. 초기·목표 좌표는 실측 전 빈 값으로 두고 설정에서 `null`로 처리 |
+| 2026-09-16 | 관제 화면 공통 지도 교체 | `cbs_map.pgm`을 무회전·무반전 PNG로 변환하고 YAML의 해상도·원점과 PNG 크기를 `display_map` API로 제공. 샘플 명령 지도와 실제 표시 지도를 분리한 채 운영 app·web 재배포, 이미지·API HTTP 200과 세 서비스 healthy 확인 |
+| 2026-09-16 | Ubuntu ROS 2·PinkyPro 관제 PC 준비 | ROS 2 Jazzy Desktop·Nav2 설치, Fast DDS 로컬 송수신 성공. 공식 PinkyPro `75f76e8` clone 후 프로젝트 Nav2 파라미터·1cm 지도 반영, `pinky_navigation` 빌드와 source/install 해시 일치 확인. Pinky Studio 0.2.3 설치와 Bluetooth 준비 완료, Domain 40 실물 로봇 토픽은 아직 미발견 |
+| 2026-09-16 | Ubuntu 공식 Docker 설치와 운영 관제 배포 | 빈 Snap Docker 제거 후 공식 Engine 29.8.1·Compose 5.5.1 설치, hello-world 성공. 운영 이미지 빌드, migration·FleetSeeder, 세 서비스 healthy, 화면·API·자산 200 확인. 컨테이너·Docker 데몬·로컬 이미지만 사용한 재생성 뒤 DB 유지 확인. 실제 인터넷 차단·호스트 재부팅·다른 기기 접속은 대기 |
+| 2026-09-16 | Ubuntu 운영용 컨테이너 구성 작성 | web·app·mysql 전용 Compose, 다단계 app/web 이미지, Nginx·PHP 운영 설정, 환경변수 템플릿 추가. 당시 Docker 권한으로 빌드·기동이 대기됐고, 후속 공식 Docker 설치 작업에서 완료 |
+| 2026-09-16 | Ubuntu 관제 노트북 초기 점검·세팅 계획 구체화 | OS·자원·Git·네트워크·포트·Docker·ROS 상태 확인. Snap Docker 데이터 확인 → 공식 Docker 준비 → 운영 배포 → 복구 검증 → Domain 40 단일 로봇 연결의 게이트를 04 문서에 기록. 설치·서비스 변경은 미수행 |
 | 2026-09-16 | 팀 GitHub 저장소 생성·게시 | 비공개 `rheffi/pinky-fleet-control` 생성, 로컬 `origin` 연결, `main` push·upstream 설정 완료 |
 | 2026-09-16 | Ubuntu 24.04 관제서버 Git 인계 준비 | 04 문서에 Git·운영 Docker·오프라인·단일 로봇 연결 순서와 Ubuntu Codex 전달 프롬프트 작성. 로컬 main 첫 커밋·추적 제외·비밀 패턴 검사 및 오프라인 Git bundle 검증 완료 |
 | 2026-09-16 | 수령한 1cm 지도·Nav2 번들 적용 상태 확인 | 로봇의 src/install 파라미터와 로컬 수령 파일 SHA-256 일치. 실행 지도 140x205@0.01m, local/global inflation 0.12·scaling 3.0·padding 0.01, 주요 lifecycle 노드 active 확인. 번들 자체의 좁은 슬롯 ABORT 이슈는 미해결 |

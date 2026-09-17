@@ -23,7 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->dontReport([FleetError::class]);
         $exceptions->render(function (Throwable $e, Request $request) {
-            if (! $request->is('api/v1/*')) {
+            if (! $request->is('api/*')) {
                 return null;
             }
             $status = 500;
@@ -53,10 +53,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 };
             }
 
-            return response()->json(['mode' => 'sample', 'error' => compact('code', 'message', 'fields')], $status)->header('Cache-Control', 'no-store');
+            return response()->json(['mode' => config('fleet.mode'), 'error' => compact('code', 'message', 'fields')], $status)->header('Cache-Control', 'no-store');
         });
         $exceptions->report(function (QueryException $e) {
-            if (request()->is('api/v1/*')) {
+            if (request()->is('api/*')) {
                 Log::warning('Fleet database request failed', ['type' => class_basename($e)]);
 
                 return false;

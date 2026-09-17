@@ -1,38 +1,62 @@
-name: pinky-fleet-control
+name: pinky-fleet-control-prod
 
-# Development configuration. Use .env for local credentials.
 services:
   web:
-    image: nginx:stable-alpine
-    ports:
-      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"
-    volumes:
-      - .:/var/www/html:ro
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      app:
-        condition: service_started
-
-  app:
-    image: pinky-fleet-control-php:dev
+    image: "${WEB_IMAGE_REPOSITORY:-pinky-fleet-control-web}:${APP_IMAGE_TAG:-local}"
     build:
       context: .
-      dockerfile: docker/php/Dockerfile
-    working_dir: /var/www/html
+      dockerfile: docker/production/Dockerfile
+      target: web
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-8080}:80"
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --output-document=- http://127.0.0.1/api/health
+          | grep -q '"status":"ok"'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - frontend
+      - control
+
+  app:
+    image: "${APP_IMAGE_REPOSITORY:-pinky-fleet-control-app}:${APP_IMAGE_TAG:-local}"
+    build:
+      context: .
+      dockerfile: docker/production/Dockerfile
+      target: app
+    init: true
+    restart: unless-stopped
     environment:
-      APP_ENV: "${APP_ENV:-local}"
-      APP_DEBUG: "${APP_DEBUG:-true}"
-      APP_URL: "${APP_URL:-http://localhost:8080}"
+      APP_NAME: "${APP_NAME:-Pinky Fleet Control}"
+      APP_ENV: production
+      APP_KEY: "${APP_KEY:?Set APP_KEY in the production environment file}"
+      APP_DEBUG: "false"
+      APP_URL: "${APP_URL:?Set APP_URL in the production environment file}"
+      LOG_CHANNEL: stderr
+      LOG_STACK: single
+      LOG_LEVEL: "${LOG_LEVEL:-warning}"
       DB_CONNECTION: mysql
       DB_HOST: mysql
       DB_PORT: "3306"
       DB_DATABASE: "${DB_DATABASE:-pinky_fleet}"
       DB_USERNAME: "${DB_USERNAME:-pinky_app}"
-      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
+      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the production environment file}"
+      SESSION_DRIVER: database
+      CACHE_STORE: database
+      QUEUE_CONNECTION: database
       FLEET_MODE: "${FLEET_MODE:-real}"
-      FLEET_AGENT_TOKEN: "${FLEET_AGENT_TOKEN:?Set FLEET_AGENT_TOKEN in .env}"
+      FLEET_AGENT_TOKEN: "${FLEET_AGENT_TOKEN:?Set FLEET_AGENT_TOKEN in the production environment file}"
       FLEET_MAP_ID: "${FLEET_MAP_ID:-cbs-map}"
-      FLEET_MAP_VERSION: "${FLEET_MAP_VERSION:?Set FLEET_MAP_VERSION in .env}"
+      FLEET_MAP_VERSION: "${FLEET_MAP_VERSION:?Set FLEET_MAP_VERSION in the production environment file}"
       FLEET_MAP_FRAME: "${FLEET_MAP_FRAME:-map}"
       FLEET_ROBOT_62B2_DOMAIN_ID: "${FLEET_ROBOT_62B2_DOMAIN_ID:-40}"
       FLEET_ROBOT_62B2_INITIAL_X: "${FLEET_ROBOT_62B2_INITIAL_X:-}"
@@ -55,20 +79,31 @@ services:
       FLEET_ROBOT_EED0_GOAL_X: "${FLEET_ROBOT_EED0_GOAL_X:-}"
       FLEET_ROBOT_EED0_GOAL_Y: "${FLEET_ROBOT_EED0_GOAL_Y:-}"
       FLEET_ROBOT_EED0_GOAL_YAW: "${FLEET_ROBOT_EED0_GOAL_YAW:-}"
-    volumes:
-      - .:/var/www/html
-      - vendor:/var/www/html/vendor
     depends_on:
       mysql:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          SCRIPT_NAME=/ping SCRIPT_FILENAME=/ping REQUEST_METHOD=GET
+          cgi-fcgi -bind -connect 127.0.0.1:9000 2>/dev/null
+          | grep -q pong
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - control
 
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: "${DB_DATABASE:-pinky_fleet}"
       MYSQL_USER: "${DB_USERNAME:-pinky_app}"
-      MYSQL_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the production environment file}"
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in the production environment file}"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -82,19 +117,13 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
-
-  node:
-    image: node:24-bookworm-slim
-    working_dir: /var/www/html
-    init: true
-    ports:
-      - "${VITE_BIND_ADDRESS:-127.0.0.1}:${VITE_PORT:-5173}:5173"
-    volumes:
-      - .:/var/www/html
-      - node_modules:/var/www/html/node_modules
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    networks:
+      - control
 
 volumes:
   mysql_data:
-  vendor:
-  node_modules:
+
+networks:
+  frontend:
+  control:
+    internal: true

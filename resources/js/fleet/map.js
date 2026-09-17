@@ -8,9 +8,3 @@ export function worldToPixel(pose, map) {
     return { x: (c * dx + s * dy) / resolution, y: map.height_px - (-s * dx + c * dy) / resolution,
         heading: -(pose.yaw_rad - rotation) * 180 / Math.PI };
 }
-
-export function pathPoints(path, map) {
-    const points = path.map(pose => worldToPixel(pose, map));
-    if (points.some(point => !point)) return '';
-    return points.map(point => point.x + ',' + point.y).join(' ');
-}

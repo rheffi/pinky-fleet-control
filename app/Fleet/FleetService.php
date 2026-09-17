@@ -7,21 +7,17 @@ use App\Models\FleetRun;
 use App\Models\FleetState;
 use App\Models\Robot;
 use App\Models\RunEvent;
+use App\Models\RunRobot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class FleetService
 {
-    public function __construct(private SampleFixture $fixture) {}
-
     public function state(): FleetState
     {
         $state = FleetState::whereKey(1)->lockForUpdate()->first();
         if (! $state) {
-            throw new FleetError('NOT_INITIALIZED', '샘플 데이터를 먼저 준비해 주세요.', 503);
-        }
-        if (config('fleet.mode') !== 'sample') {
-            throw new FleetError('MODE_DISABLED', '현재 구현은 샘플 모드만 지원합니다.', 409);
+            throw new FleetError('NOT_INITIALIZED', '관제 데이터를 먼저 준비해 주세요.', 503);
         }
 
         return $state;
@@ -30,8 +26,9 @@ class FleetService
     public function freshness($at): string
     {
         if (! $at) {
-            return 'unknown';
+            return 'offline';
         }
+
         $age = max(0, now()->getTimestamp() - $at->getTimestamp());
         if ($age > config('fleet.offline_seconds')) {
             return 'offline';
@@ -45,30 +42,336 @@ class FleetService
 
     public function meta(FleetState $state): array
     {
-        return ['schema_version' => '1', 'mode' => 'sample', 'server_time' => now()->toISOString(),
-            'snapshot_revision' => $state->revision];
+        return [
+            'schema_version' => '2',
+            'mode' => 'real',
+            'server_time' => now()->toISOString(),
+            'snapshot_revision' => $state->revision,
+        ];
+    }
+
+    public function goalPose(string $robotId): ?array
+    {
+        $goal = config("fleet.robots.{$robotId}.goal_pose");
+        if (! is_array($goal) || in_array(null, $goal, true)) {
+            return null;
+        }
+
+        return [
+            'map_id' => config('fleet.map.id'),
+            'map_version' => config('fleet.map.version'),
+            'frame_id' => config('fleet.map.frame_id'),
+            'x_m' => $goal['x_m'],
+            'y_m' => $goal['y_m'],
+            'yaw_rad' => $goal['yaw_rad'],
+        ];
+    }
+
+    public function initialPose(string $robotId): ?array
+    {
+        $pose = config("fleet.robots.{$robotId}.initial_pose");
+        if (! is_array($pose) || in_array(null, $pose, true)) {
+            return null;
+        }
+
+        return [
+            'map_id' => config('fleet.map.id'),
+            'map_version' => config('fleet.map.version'),
+            'frame_id' => config('fleet.map.frame_id'),
+            ...$pose,
+        ];
+    }
+
+    public function configuredRobots(): array
+    {
+        return collect(config('fleet.robots'))->map(function (array $settings, string $id) {
+            $robot = Robot::find($id);
+
+            return [
+                'id' => $id,
+                'label' => $robot?->label ?? 'Pinky '.$id,
+                'ros_domain_id' => $settings['domain_id'],
+                'initial_pose' => $this->initialPose($id),
+                'goal_pose' => $this->goalPose($id),
+                'goal_configured' => $this->goalPose($id) !== null,
+            ];
+        })->values()->all();
     }
 
     public function snapshot(): array
     {
         return DB::transaction(function () {
             $state = $this->state();
-            $robots = Robot::orderBy('id')->get()->map(fn ($r) => [
-                ...$r->toArray(), 'connection_state' => $this->freshness($r->received_at),
+            $robots = Robot::orderBy('id')->get()->map(fn (Robot $robot) => [
+                ...$robot->toArray(),
+                'connection_state' => $this->freshness($robot->received_at),
                 'active_run_id' => $state->active_run_id,
+                'goal_pose' => $this->goalPose($robot->id),
+                'goal_configured' => $this->goalPose($robot->id) !== null,
             ]);
 
-            return [...$this->meta($state), 'robots' => $robots,
-                'executor' => ['connection_state' => $this->freshness($state->heartbeat_at), 'received_at' => $state->heartbeat_at],
-                'active_run' => $state->active_run_id ? FleetRun::with('robots')->findOrFail($state->active_run_id) : null,
+            return [
+                ...$this->meta($state),
+                'robots' => $robots,
+                'active_run' => $state->active_run_id
+                    ? FleetRun::with('robots')->findOrFail($state->active_run_id)
+                    : null,
             ];
         });
     }
 
-    public function event(string $run, string $type, string $message, ?string $robot = null): void
+    public function start(string $robotId, string $requestId): array
     {
-        RunEvent::create(['run_id' => $run, 'robot_id' => $robot, 'type' => $type,
-            'message' => $message, 'mode' => 'sample', 'occurred_at' => now()]);
+        if (! array_key_exists($robotId, config('fleet.robots'))) {
+            throw new FleetError('ROBOT_NOT_FOUND', '등록되지 않은 로봇입니다.', 404);
+        }
+        $goal = $this->goalPose($robotId);
+        if (! $goal) {
+            throw new FleetError('GOAL_NOT_CONFIGURED', "{$robotId} 목표 좌표를 먼저 설정해 주세요.", 422);
+        }
+
+        $hash = hash('sha256', json_encode(['start', $robotId, $goal], JSON_THROW_ON_ERROR));
+
+        return DB::transaction(function () use ($robotId, $requestId, $goal, $hash) {
+            $state = $this->state();
+            if ($command = $this->replay($requestId, $hash)) {
+                return $this->reply($command, true);
+            }
+            if ($state->active_run_id) {
+                throw new FleetError('ACTIVE_RUN', '다른 로봇의 주행이 끝난 뒤 시작해 주세요.');
+            }
+
+            $robot = Robot::whereKey($robotId)->lockForUpdate()->first();
+            if (! $robot || $this->freshness($robot->received_at) !== 'online' || ! $robot->pose) {
+                throw new FleetError('ROBOT_UNAVAILABLE', "{$robotId} 연결과 현재 위치를 확인해 주세요.");
+            }
+            if (! $this->poseMatchesMap($robot->pose)) {
+                throw new FleetError('POSE_MISMATCH', "{$robotId} 위치와 관제 지도의 버전 또는 좌표계가 다릅니다.");
+            }
+
+            $runId = (string) Str::uuid();
+            $run = FleetRun::create([
+                'id' => $runId,
+                'mode' => 'real',
+                'map_id' => config('fleet.map.id'),
+                'map_version' => config('fleet.map.version'),
+                'status' => 'queued',
+            ]);
+            $run->robots()->create([
+                'robot_id' => $robotId,
+                'goal_id' => $robotId.'-fixed',
+                'goal_pose' => $goal,
+                'planned_path' => [],
+                'path_source' => 'nav2',
+                'state' => 'pending',
+            ]);
+            $command = FleetCommand::create([
+                'id' => (string) Str::uuid(),
+                'request_id' => $requestId,
+                'run_id' => $runId,
+                'type' => 'start',
+                'payload_hash' => $hash,
+                'status' => 'accepted',
+                'created_at' => now(),
+            ]);
+            $state->active_run_id = $runId;
+            $state->revision++;
+            $state->save();
+            $this->event($runId, 'queued', '주행 명령 접수 · 로봇 실행기 전달 대기', $robotId);
+
+            return $this->reply($command);
+        }, 3);
+    }
+
+    public function stop(string $runId, string $requestId): array
+    {
+        $hash = hash('sha256', json_encode(['stop', $runId], JSON_THROW_ON_ERROR));
+
+        return DB::transaction(function () use ($runId, $requestId, $hash) {
+            $state = $this->state();
+            if ($command = $this->replay($requestId, $hash)) {
+                return $this->reply($command, true);
+            }
+
+            $run = FleetRun::with('robots')->findOrFail($runId);
+            if ($state->active_run_id !== $runId || ! in_array($run->status, ['queued', 'running'], true)) {
+                throw new FleetError('RUN_FINISHED', '이미 종료된 작업입니다.');
+            }
+
+            $command = FleetCommand::create([
+                'id' => (string) Str::uuid(),
+                'request_id' => $requestId,
+                'run_id' => $runId,
+                'type' => 'stop',
+                'payload_hash' => $hash,
+                'status' => 'accepted',
+                'created_at' => now(),
+            ]);
+            $run->update(['status' => 'stopping']);
+            $state->revision++;
+            $state->save();
+            $this->event($runId, 'stop_requested', '정지 요청 접수 · Nav2 취소 결과 대기', $run->robots->first()?->robot_id);
+
+            return $this->reply($command);
+        }, 3);
+    }
+
+    public function commandFor(string $robotId): array
+    {
+        $this->assertRobotId($robotId);
+
+        return DB::transaction(function () use ($robotId) {
+            $state = FleetState::findOrFail(1);
+            if (! $state->active_run_id) {
+                return ['action' => 'none'];
+            }
+
+            $run = FleetRun::with('robots')->findOrFail($state->active_run_id);
+            $entry = $run->robots->firstWhere('robot_id', $robotId);
+            if (! $entry || in_array($entry->state, ['arrived', 'failed', 'stopped'], true)) {
+                return ['action' => 'none'];
+            }
+            if ($run->status === 'stopping') {
+                return ['action' => 'stop', 'run_id' => $run->id];
+            }
+            if (in_array($run->status, ['queued', 'running'], true)) {
+                return ['action' => 'start', 'run_id' => $run->id, 'goal_pose' => $entry->goal_pose];
+            }
+
+            return ['action' => 'none'];
+        });
+    }
+
+    public function telemetry(string $robotId, array $data): array
+    {
+        $this->assertRobotId($robotId);
+
+        return DB::transaction(function () use ($robotId, $data) {
+            $state = $this->state();
+            $robot = Robot::whereKey($robotId)->lockForUpdate()->firstOrFail();
+            $pose = $data['pose'] ?? null;
+            $motionState = $data['motion_state'];
+
+            $robot->motion_state = $motionState;
+            if ($data['connected']) {
+                $robot->received_at = now();
+            }
+            if ($data['connected'] && $pose !== null) {
+                $robot->pose = $pose;
+            }
+            $robot->save();
+
+            $state->heartbeat_at = now();
+            $state->revision++;
+
+            $runId = $data['run_id'] ?? null;
+            if ($runId && $state->active_run_id === $runId) {
+                $run = FleetRun::with('robots')->whereKey($runId)->lockForUpdate()->firstOrFail();
+                $entry = $run->robots->firstWhere('robot_id', $robotId);
+                if ($entry) {
+                    $this->applyTelemetryToRun(
+                        $run,
+                        $entry,
+                        $state,
+                        $motionState,
+                        $data['action_result'] ?? null,
+                        $pose,
+                        $data['message'] ?? null,
+                    );
+                }
+            }
+
+            $state->save();
+
+            return [...$this->meta($state), 'accepted' => true];
+        }, 3);
+    }
+
+    private function applyTelemetryToRun(
+        FleetRun $run,
+        RunRobot $entry,
+        FleetState $state,
+        string $motionState,
+        ?string $actionResult,
+        ?array $pose,
+        ?string $message,
+    ): void {
+        if ($motionState === 'moving' && $entry->state === 'pending') {
+            $entry->update(['state' => 'moving']);
+            $run->update(['status' => 'running', 'started_at' => $run->started_at ?? now()]);
+            FleetCommand::where('run_id', $run->id)->where('type', 'start')->update(['status' => 'dispatched']);
+            $this->event($run->id, 'moving', 'Nav2 목표 수락 · 이동 시작', $entry->robot_id);
+
+            return;
+        }
+
+        if ($motionState === 'arrived') {
+            if ($actionResult !== 'succeeded' || ! $pose) {
+                throw new FleetError('ARRIVAL_NOT_VERIFIED', 'Nav2 성공 결과와 실제 도착 위치가 모두 필요합니다.', 422);
+            }
+            if ($entry->state === 'arrived') {
+                return;
+            }
+            $result = [
+                'source' => 'nav2',
+                'outcome' => 'succeeded',
+                'pose' => $pose,
+                'position_error_m' => round(hypot($pose['x_m'] - $entry->goal_pose['x_m'], $pose['y_m'] - $entry->goal_pose['y_m']), 4),
+                'yaw_error_rad' => round(abs($this->normalizeAngle($pose['yaw_rad'] - $entry->goal_pose['yaw_rad'])), 4),
+                'message' => $message,
+                'received_at' => now()->toISOString(),
+            ];
+            $entry->update(['state' => 'arrived', 'result' => $result]);
+            $run->update(['status' => 'completed', 'finished_at' => now()]);
+            FleetCommand::where('run_id', $run->id)->update(['status' => 'completed']);
+            $state->active_run_id = null;
+            $this->event($run->id, 'arrived', 'Nav2 성공 및 실제 도착 위치 확인', $entry->robot_id);
+
+            return;
+        }
+
+        if ($motionState === 'stopped' && $actionResult === 'canceled' && $run->status === 'stopping') {
+            if ($entry->state !== 'stopped') {
+                $entry->update([
+                    'state' => 'stopped',
+                    'stop_ack_at' => now(),
+                    'result' => [
+                        'source' => 'nav2',
+                        'outcome' => 'canceled',
+                        'pose' => $pose,
+                        'message' => $message,
+                        'received_at' => now()->toISOString(),
+                    ],
+                ]);
+                $run->update(['status' => 'cancelled', 'finished_at' => now()]);
+                FleetCommand::where('run_id', $run->id)->update(['status' => 'completed']);
+                $state->active_run_id = null;
+                $this->event($run->id, 'stopped', 'Nav2 목표 취소 확인', $entry->robot_id);
+            }
+
+            return;
+        }
+
+        if ($motionState === 'failed' && in_array($actionResult, ['aborted', 'rejected', 'failed'], true)) {
+            if ($entry->state !== 'failed') {
+                $result = [
+                    'source' => 'nav2',
+                    'outcome' => $actionResult,
+                    'pose' => $pose,
+                    'message' => $message,
+                    'received_at' => now()->toISOString(),
+                ];
+                $entry->update(['state' => 'failed', 'result' => $result]);
+                $run->update([
+                    'status' => 'failed',
+                    'error' => ['code' => 'NAV2_FAILED', 'message' => $message ?: 'Nav2 주행에 실패했습니다.'],
+                    'finished_at' => now(),
+                ]);
+                FleetCommand::where('run_id', $run->id)->update(['status' => 'failed']);
+                $state->active_run_id = null;
+                $this->event($run->id, 'failed', $message ?: 'Nav2 주행 실패', $entry->robot_id);
+            }
+        }
     }
 
     private function replay(string $requestId, string $hash): ?FleetCommand
@@ -83,190 +386,42 @@ class FleetService
 
     private function reply(FleetCommand $command, bool $replayed = false): array
     {
-        return [...$this->meta(FleetState::findOrFail(1)), 'command' => $command,
-            'run' => FleetRun::with('robots')->findOrFail($command->run_id), 'replayed' => $replayed];
+        return [
+            ...$this->meta(FleetState::findOrFail(1)),
+            'command' => $command,
+            'run' => FleetRun::with('robots')->findOrFail($command->run_id),
+            'replayed' => $replayed,
+        ];
     }
 
-    public function create(array $data): array
+    private function event(string $run, string $type, string $message, ?string $robot = null): void
     {
-        $data['assignments'] = array_map(fn ($a) => ['robot_id' => $a['robot_id'], 'goal_id' => $a['goal_id']], $data['assignments']);
-        usort($data['assignments'], fn ($a, $b) => strcmp($a['robot_id'], $b['robot_id']));
-        $hash = hash('sha256', json_encode(['start', $data['map_id'], $data['map_version'], $data['assignments']]));
-
-        return DB::transaction(function () use ($data, $hash) {
-            $state = $this->state();
-            if ($command = $this->replay($data['request_id'], $hash)) {
-                return $this->reply($command, true);
-            }
-            if ($state->active_run_id) {
-                throw new FleetError('ACTIVE_RUN', '먼저 현재 작업을 종료해 주세요.');
-            }
-            if ($this->freshness($state->heartbeat_at) !== 'online') {
-                throw new FleetError('EXECUTOR_UNAVAILABLE', '샘플 실행기의 상태가 최신이 아닙니다.');
-            }
-            if ($data['map_id'] !== 'sample-map' || $data['map_version'] !== '1') {
-                throw new FleetError('MAP_MISMATCH', '지도 버전이 맞지 않습니다.', 422);
-            }
-            $goals = collect($this->fixture->goals())->keyBy('id');
-            $robots = Robot::all()->keyBy('id');
-            $prepared = [];
-            $sides = [];
-            foreach ($data['assignments'] as $assignment) {
-                $id = $assignment['robot_id'];
-                $goal = $goals->get($assignment['goal_id']);
-                $robot = $robots->get($id);
-                if (! $robot || ! $goal || $goal['robot_id'] !== $id) {
-                    throw new FleetError('INVALID_ASSIGNMENT', '로봇과 고정 목표의 조합을 확인해 주세요.', 422);
-                }
-                if ($this->freshness($robot->received_at) !== 'online' || ! $robot->pose) {
-                    throw new FleetError('ROBOT_UNAVAILABLE', "$id 상태와 위치를 확인해 주세요.");
-                }
-                $sides[] = str_ends_with($goal['id'], '-right') ? 'right' : 'left';
-                $prepared[] = ['robot_id' => $id, 'goal_id' => $goal['id'], 'goal_pose' => $goal['pose'],
-                    'planned_path' => $this->fixture->path($id, $robot->pose, $goal['pose']),
-                    'state' => 'pending', 'path_source' => 'fixture'];
-            }
-            if (count(array_unique($sides)) !== 1) {
-                throw new FleetError('SCENARIO_UNAVAILABLE', '샘플은 세 로봇 모두 동쪽 또는 모두 서쪽인 조합을 지원합니다.', 422);
-            }
-            $run = FleetRun::create(['id' => (string) Str::uuid(), 'mode' => 'sample',
-                'map_id' => $data['map_id'], 'map_version' => $data['map_version'], 'status' => 'queued']);
-            $run->robots()->createMany($prepared);
-            $command = FleetCommand::create(['id' => (string) Str::uuid(), 'request_id' => $data['request_id'],
-                'run_id' => $run->id, 'type' => 'start', 'payload_hash' => $hash, 'status' => 'accepted', 'created_at' => now()]);
-            $state->active_run_id = $run->id;
-            $state->revision++;
-            $state->save();
-            $this->event($run->id, 'queued', '샘플 작업 접수 · 아직 출발하지 않음');
-
-            return $this->reply($command);
-        }, 3);
+        RunEvent::create([
+            'run_id' => $run,
+            'robot_id' => $robot,
+            'type' => $type,
+            'message' => $message,
+            'mode' => 'real',
+            'occurred_at' => now(),
+        ]);
     }
 
-    public function stop(string $runId, string $requestId): array
+    private function poseMatchesMap(array $pose): bool
     {
-        $hash = hash('sha256', json_encode(['stop', $runId]));
-
-        return DB::transaction(function () use ($runId, $requestId, $hash) {
-            $state = $this->state();
-            if ($command = $this->replay($requestId, $hash)) {
-                return $this->reply($command, true);
-            }
-            $run = FleetRun::findOrFail($runId);
-            if ($state->active_run_id !== $runId) {
-                throw new FleetError('RUN_FINISHED', '이미 종료된 작업입니다.');
-            }
-            $command = FleetCommand::create(['id' => (string) Str::uuid(), 'request_id' => $requestId,
-                'run_id' => $runId, 'type' => 'stop', 'payload_hash' => $hash, 'status' => 'accepted', 'created_at' => now()]);
-            if ($run->status !== 'stopping') {
-                $run->update(['status' => 'stopping']);
-                $this->event($runId, 'stop_requested', '전체 정지 요청 접수 · 실행기 확인 대기');
-            }
-            $state->revision++;
-            $state->save();
-
-            return $this->reply($command);
-        }, 3);
+        return ($pose['map_id'] ?? null) === config('fleet.map.id')
+            && ($pose['map_version'] ?? null) === config('fleet.map.version')
+            && ($pose['frame_id'] ?? null) === config('fleet.map.frame_id');
     }
 
-    public function recover(): void
+    private function assertRobotId(string $robotId): void
     {
-        DB::transaction(function () {
-            $state = $this->state();
-            if ($state->active_run_id) {
-                $run = FleetRun::findOrFail($state->active_run_id);
-                if ($run->status !== 'interrupted') {
-                    $run->update(['status' => 'interrupted', 'error' => ['code' => 'EXECUTOR_RESTART', 'message' => '실행기가 재시작되었습니다. 정지 요청으로 작업을 종료해 주세요.']]);
-                    $this->event($run->id, 'interrupted', '실행기 재시작 · 자동 재개하지 않음');
-                }
-                Robot::whereNotIn('motion_state', ['arrived', 'stopped'])->update(['motion_state' => 'unknown']);
-            }
-            $state->heartbeat_at = now();
-            $state->revision++;
-            $state->save();
-        });
-    }
-
-    public function tick(): void
-    {
-        DB::transaction(function () {
-            $state = $this->state();
-            // A long pause is not permission to jump ahead or silently resume.
-            if ($state->active_run_id && $state->heartbeat_at && $this->freshness($state->heartbeat_at) !== 'online') {
-                $run = FleetRun::findOrFail($state->active_run_id);
-                if (in_array($run->status, ['queued', 'running'])) {
-                    $run->update(['status' => 'interrupted', 'error' => ['code' => 'EXECUTOR_DELAY', 'message' => '실행기 갱신 지연. 정지 요청으로 종료해 주세요.']]);
-                    Robot::whereNotIn('motion_state', ['arrived', 'stopped'])->update(['motion_state' => 'unknown']);
-                    $this->event($run->id, 'interrupted', '실행 지연 · 자동 진행 보류');
-                }
-            }
-            $state->heartbeat_at = now();
-            Robot::query()->update(['received_at' => now()]);
-            if ($state->active_run_id) {
-                $this->advance(FleetRun::with('robots')->findOrFail($state->active_run_id), $state);
-            }
-            $state->revision++;
-            $state->save();
-        }, 3);
-    }
-
-    private function advance(FleetRun $run, FleetState $state): void
-    {
-        if ($run->status === 'interrupted') {
-            return;
-        }
-        if ($run->status === 'stopping') {
-            foreach ($run->robots as $entry) {
-                if ($entry->state === 'arrived') {
-                    continue;
-                }
-                $entry->update(['state' => 'stopped', 'stop_ack_at' => now(),
-                    'result' => ['source' => 'sample', 'outcome' => 'stopped']]);
-                Robot::whereKey($entry->robot_id)->update(['motion_state' => 'stopped']);
-                $this->event($run->id, 'stopped', '샘플 정지 확인', $entry->robot_id);
-            }
-            $this->finish($run, $state, 'cancelled');
-
-            return;
-        }
-        if ($run->status === 'queued') {
-            $run->status = 'running';
-            $run->started_at = now();
-            FleetCommand::where('run_id', $run->id)->where('type', 'start')->update(['status' => 'acknowledged']);
-            $this->event($run->id, 'running', '샘플 경로 재생 시작');
-        }
-        $allArrived = true;
-        foreach ($run->robots as $entry) {
-            $path = $entry->planned_path;
-            $index = min($run->tick, count($path) - 1);
-            $point = $path[$index];
-            $next = $index === count($path) - 1 ? 'arrived' : ($point['wait_s'] > 0 ? 'waiting' : 'moving');
-            if ($next !== 'arrived') {
-                $allArrived = false;
-            }
-            if ($entry->state !== $next) {
-                $this->event($run->id, $next, ['moving' => '샘플 이동', 'waiting' => '시나리오에 지정된 대기', 'arrived' => '샘플 목표 도착 확인'][$next], $entry->robot_id);
-            }
-            $entry->state = $next;
-            if ($next === 'arrived') {
-                $entry->result = ['source' => 'sample', 'outcome' => 'arrived'];
-            }
-            $entry->save();
-            $pose = array_intersect_key($point, array_flip(['map_id', 'map_version', 'frame_id', 'x_m', 'y_m', 'yaw_rad']));
-            Robot::whereKey($entry->robot_id)->firstOrFail()->update(['pose' => $pose, 'motion_state' => $next]);
-        }
-        $run->tick++;
-        $run->save();
-        if ($allArrived) {
-            $this->finish($run, $state, 'completed');
+        if (! array_key_exists($robotId, config('fleet.robots'))) {
+            throw new FleetError('ROBOT_NOT_FOUND', '등록되지 않은 로봇입니다.', 404);
         }
     }
 
-    private function finish(FleetRun $run, FleetState $state, string $status): void
+    private function normalizeAngle(float $angle): float
     {
-        $run->update(['status' => $status, 'finished_at' => now()]);
-        FleetCommand::where('run_id', $run->id)->where('status', 'accepted')->update(['status' => 'acknowledged']);
-        $state->active_run_id = null;
-        $this->event($run->id, $status, $status === 'completed' ? '세 로봇 샘플 도착 완료' : '전체 샘플 정지 확인 · 작업 종료');
+        return atan2(sin($angle), cos($angle));
     }
 }

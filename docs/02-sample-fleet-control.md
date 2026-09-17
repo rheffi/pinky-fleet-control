@@ -226,6 +226,7 @@ F1~F6은 이번 구현 묶음이다. 구현 중 실제 지도나 외부 API 규�
 - [FleetMutation](../app/Http/Middleware/FleetMutation.php): 변경 요청의 CSRF 토큰과 Origin 검증.
 - [SimulateFleet](../app/Console/Commands/SimulateFleet.php): MySQL 연결 잠금으로 중복 실행 제한, 1초마다 상태 갱신. 외부 로봇 명령 없음.
 - [FleetDashboard](../resources/js/FleetDashboard.vue), [지도 좌표 변환](../resources/js/fleet/map.js): 관제 화면, 샘플 표시, 요청 재시도 ID 보존, 마지막 수신 시각, 이력 선택.
+- 관제 지도 배경은 실제 `map/cbs_map.pgm`에서 생성한 `public/maps/cbs_map.png`로 교체했다. API는 YAML의 해상도 `0.01m/px`, 원점 `[-0.209, -1.738, 0]`과 PNG 크기 `140×205px`를 별도 `display_map`으로 제공한다. 샘플 명령 지도와 실제 표시 지도를 분리했으므로 현재 샘플 좌표·경로를 실제 위치로 오해하지 않는다.
 - 기존 환경 화면은 [EnvironmentView](../resources/js/EnvironmentView.vue)로 보존하고 /environment에서 제공한다.
 
 ### 5.2 실제 검증과 수정 기록

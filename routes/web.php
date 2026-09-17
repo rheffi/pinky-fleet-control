@@ -12,7 +12,7 @@ Route::prefix('api/v1')->middleware(FleetMutation::class)->group(function () {
     Route::get('bootstrap', [$controller, 'bootstrap']);
     Route::get('snapshot', [$controller, 'snapshot']);
     Route::get('runs', [$controller, 'index']);
-    Route::post('runs', [$controller, 'store']);
+    Route::post('robots/{robot}/start', [$controller, 'start']);
     Route::get('runs/{id}', [$controller, 'show'])->whereUuid('id');
     Route::post('runs/{id}/stop', [$controller, 'stop'])->whereUuid('id');
     Route::get('runs/{id}/events', [$controller, 'events'])->whereUuid('id');

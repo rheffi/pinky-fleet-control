@@ -82,7 +82,7 @@ onMounted(refresh);
 
             <section class="next-section">
                 <span class="next-icon" aria-hidden="true">↗</span>
-                <div><h2>다음은 관제의 기본 화면입니다.</h2><p>샘플 데이터로 로봇 목록과 작업 흐름을 만든 뒤, Ubuntu 관제 노트북에서 실제 로봇을 연결합니다.</p></div>
+                <div><h2>관제 화면으로 이동합니다.</h2><p>로봇별 ROS 수신 상태와 실제 지도 위치를 확인하고 고정 목표 주행을 시작합니다.</p></div>
                 <span class="step-label">NEXT STEP</span>
             </section>
         </main>

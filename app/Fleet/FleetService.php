@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class FleetService
 {
+    public function __construct(private DemoFleet $demo) {}
+
     public function state(): FleetState
     {
         $state = FleetState::whereKey(1)->lockForUpdate()->first();
@@ -44,7 +46,7 @@ class FleetService
     {
         return [
             'schema_version' => '2',
-            'mode' => 'real',
+            'mode' => config('fleet.mode'),
             'server_time' => now()->toISOString(),
             'snapshot_revision' => $state->revision,
         ];
@@ -52,6 +54,10 @@ class FleetService
 
     public function goalPose(string $robotId): ?array
     {
+        if ($this->demo->enabled()) {
+            return $this->demo->goalPose($robotId);
+        }
+
         $goal = config("fleet.robots.{$robotId}.goal_pose");
         if (! is_array($goal) || in_array(null, $goal, true)) {
             return null;
@@ -69,6 +75,10 @@ class FleetService
 
     public function initialPose(string $robotId): ?array
     {
+        if ($this->demo->enabled()) {
+            return $this->demo->initialPose($robotId);
+        }
+
         $pose = config("fleet.robots.{$robotId}.initial_pose");
         if (! is_array($pose) || in_array(null, $pose, true)) {
             return null;
@@ -94,6 +104,7 @@ class FleetService
                 'initial_pose' => $this->initialPose($id),
                 'goal_pose' => $this->goalPose($id),
                 'goal_configured' => $this->goalPose($id) !== null,
+                'planned_path' => $this->demo->enabled() ? $this->demo->plannedPath($id) : [],
             ];
         })->values()->all();
     }
@@ -102,6 +113,8 @@ class FleetService
     {
         return DB::transaction(function () {
             $state = $this->state();
+            $this->demo->advance($state);
+            $state->refresh();
             $robots = Robot::orderBy('id')->get()->map(fn (Robot $robot) => [
                 ...$robot->toArray(),
                 'connection_state' => $this->freshness($robot->received_at),
@@ -118,6 +131,13 @@ class FleetService
                     : null,
             ];
         });
+    }
+
+    public function resetDemo(): array
+    {
+        $result = $this->demo->reset();
+
+        return [...$this->meta(FleetState::findOrFail(1)), ...$result];
     }
 
     public function start(string $robotId, string $requestId): array
@@ -152,7 +172,7 @@ class FleetService
             $runId = (string) Str::uuid();
             $run = FleetRun::create([
                 'id' => $runId,
-                'mode' => 'real',
+                'mode' => config('fleet.mode'),
                 'map_id' => config('fleet.map.id'),
                 'map_version' => config('fleet.map.version'),
                 'status' => 'queued',
@@ -161,8 +181,8 @@ class FleetService
                 'robot_id' => $robotId,
                 'goal_id' => $robotId.'-fixed',
                 'goal_pose' => $goal,
-                'planned_path' => [],
-                'path_source' => 'nav2',
+                'planned_path' => $this->demo->enabled() ? $this->demo->plannedPath($robotId) : [],
+                'path_source' => $this->demo->enabled() ? 'demo' : 'nav2',
                 'state' => 'pending',
             ]);
             $command = FleetCommand::create([
@@ -220,6 +240,10 @@ class FleetService
     {
         $this->assertRobotId($robotId);
 
+        if ($this->demo->enabled()) {
+            return ['action' => 'none', 'mode' => 'demo'];
+        }
+
         return DB::transaction(function () use ($robotId) {
             $state = FleetState::findOrFail(1);
             if (! $state->active_run_id) {
@@ -245,6 +269,14 @@ class FleetService
     public function telemetry(string $robotId, array $data): array
     {
         $this->assertRobotId($robotId);
+
+        if ($this->demo->enabled()) {
+            return [
+                ...$this->meta(FleetState::findOrFail(1)),
+                'accepted' => false,
+                'ignored' => 'demo_mode',
+            ];
+        }
 
         return DB::transaction(function () use ($robotId, $data) {
             $state = $this->state();
@@ -401,7 +433,7 @@ class FleetService
             'robot_id' => $robot,
             'type' => $type,
             'message' => $message,
-            'mode' => 'real',
+            'mode' => config('fleet.mode'),
             'occurred_at' => now(),
         ]);
     }

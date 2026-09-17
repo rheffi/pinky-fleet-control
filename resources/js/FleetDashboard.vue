@@ -15,7 +15,7 @@ const labels = {
     queued: '전달 대기', running: '이동 중', completed: '도착 완료', stopping: '정지 확인 대기',
     cancelled: '정지 완료', interrupted: '확인 필요', failed: '주행 실패', pending: '출발 대기',
     idle: '출발 가능', moving: '이동 중', arrived: '도착 완료', stopped: '정지 완료',
-    unknown: '위치 확인 필요', error: '오류', online: '정상 수신', stale: '수신 지연', offline: '연결 끊김',
+    waiting: '통로 대기', unknown: '위치 확인 필요', error: '오류', online: '정상 수신', stale: '수신 지연', offline: '연결 끊김',
 };
 
 function readPending() {
@@ -31,6 +31,7 @@ const pending = ref(readPending());
 const map = computed(() => bootstrap.value?.map);
 const robots = computed(() => snapshot.value?.robots || []);
 const active = computed(() => snapshot.value?.active_run);
+const isDemo = computed(() => (snapshot.value?.mode || bootstrap.value?.mode) === 'demo');
 const activeRobotId = computed(() => active.value?.robots?.[0]?.robot_id || null);
 const shownRun = computed(() => selected.value ? detail.value : active.value);
 const staleView = computed(() => !lastSuccess.value || clock.value - lastSuccess.value > 3500 || !!networkError.value);
@@ -38,6 +39,13 @@ const projected = computed(() => robots.value.map(robot => ({ ...robot, pixel: w
 const goals = computed(() => (bootstrap.value?.robots || [])
     .filter(robot => robot.goal_pose)
     .map(robot => ({ robot_id: robot.id, pose: robot.goal_pose, pixel: worldToPixel(robot.goal_pose, map.value) })));
+const plannedRoutes = computed(() => (bootstrap.value?.robots || []).map(robot => ({
+    robot_id: robot.id,
+    points: (robot.planned_path || []).map(pose => worldToPixel(pose, map.value)).filter(Boolean),
+})).filter(route => route.points.length > 1).map(route => ({
+    ...route,
+    pointsText: route.points.map(point => point.x + ',' + point.y).join(' '),
+})));
 const summary = computed(() => active.value
     ? activeRobotId.value + ' · ' + labels[active.value.status]
     : '로봇별 주행 준비');
@@ -170,6 +178,25 @@ async function stopActive() {
     await sendPending();
 }
 
+async function resetDemo() {
+    if (!isDemo.value || busy.value) return;
+    busy.value = true;
+    commandError.value = '';
+    try {
+        await api('demo/reset', {}, controller.signal);
+        savePending(null);
+        selected.value = null;
+        detail.value = null;
+        events.value = [];
+        history.value = [];
+        snapshot.value = await api('snapshot', null, controller.signal);
+    } catch (error) {
+        commandError.value = error.message || '데모를 초기화하지 못했습니다.';
+    } finally {
+        busy.value = false;
+    }
+}
+
 onMounted(() => {
     poll();
     clockTimer = setInterval(() => { clock.value = Date.now(); }, 1000);
@@ -187,13 +214,13 @@ onUnmounted(() => {
     <div class="fleet">
         <header class="fleet-header">
             <a href="/" class="fleet-brand"><span class="brand-icon">P</span><span>Pinky <strong>Fleet Control</strong><small>세 로봇, 하나의 관제</small></span></a>
-            <div class="header-right"><span class="real-badge">실제 로봇</span><a href="/environment">환경 확인 ↗</a></div>
+            <div class="header-right"><span :class="['real-badge', { demo: isDemo }]">{{ isDemo ? 'DEMO · 발표용 샘플' : '실제 로봇' }}</span><a href="/environment">환경 확인 ↗</a></div>
         </header>
         <main>
             <section class="sync-row">
                 <div class="sync"><i :class="{ bad: staleView }"></i>{{ staleView ? '관제 갱신 확인 필요' : '관제 서버 연결됨' }}<small>화면 갱신 {{ formatTime(lastSuccess) }}</small></div>
             </section>
-            <div class="real-note"><span>실로봇 관제</span> 위치와 상태는 로봇별 ROS 실행기가 전달한 정보입니다.</div>
+            <div :class="['real-note', { demo: isDemo }]"><span>{{ isDemo ? '발표용 데모' : '실로봇 관제' }}</span>{{ isDemo ? ' 화면의 위치·주행·로그는 관제 흐름 설명을 위한 샘플 데이터입니다.' : ' 위치와 상태는 로봇별 ROS 실행기가 전달한 정보입니다.' }}</div>
             <div v-if="networkError" class="alert" role="alert">관제 API 연결 오류 · {{ networkError }}</div>
             <div v-if="active?.status === 'interrupted'" class="alert" role="alert">{{ active.error?.message }}</div>
 
@@ -203,6 +230,7 @@ onUnmounted(() => {
                     <div class="map-wrap">
                         <svg v-if="map" :viewBox="'0 0 ' + map.width_px + ' ' + map.height_px" :style="{ '--map-ratio': map.width_px / map.height_px }" role="img" aria-label="PinkyPro 실제 공통 주행 지도">
                             <image class="occupancy-map" :href="map.image_url" :width="map.width_px" :height="map.height_px" />
+                            <polyline v-for="route in plannedRoutes" :key="'route-' + route.robot_id" class="planned-route" :class="{ active: activeRobotId === route.robot_id }" :points="route.pointsText" fill="none" :stroke="colors[route.robot_id]" />
                             <g v-for="goal in goals.filter(item => item.pixel)" :key="'goal-' + goal.robot_id" :transform="'translate(' + goal.pixel.x + ',' + goal.pixel.y + ')'">
                                 <circle r="12" fill="white" fill-opacity=".72" :stroke="colors[goal.robot_id]" stroke-width="2" stroke-dasharray="3 3"/>
                                 <path d="M-4 0H4M0-4V4" :stroke="colors[goal.robot_id]" stroke-width="2"/>
@@ -218,11 +246,11 @@ onUnmounted(() => {
                         <div v-else class="empty">지도를 불러오는 중입니다.</div>
                     </div>
                     <div class="map-footer"><span>해상도 {{ map?.resolution_m_per_pixel }}m/px</span><span>크기 {{ map?.width_px }}×{{ map?.height_px }}px</span><span>좌표 frame: {{ map?.frame_id }}</span></div>
-                    <p class="map-caption">실제 지도 · 실시간 AMCL 위치</p>
+                    <p class="map-caption">{{ isDemo ? '실제 지도 · 발표용 샘플 위치와 예정 경로' : '실제 지도 · 실시간 AMCL 위치' }}</p>
                 </article>
 
                 <aside class="robot-panel">
-                    <div class="robots-heading"><h2>로봇 상태 <span>03</span></h2><span class="tag">ROS 수신</span></div>
+                    <div class="robots-heading"><h2>로봇 상태 <span>03</span></h2><span class="tag">{{ isDemo ? 'SAMPLE DATA' : 'ROS 수신' }}</span></div>
                     <div v-if="loading && !robots.length" class="empty">상태를 불러오는 중입니다.</div>
                     <article v-for="robot in robots" :key="robot.id" :class="['robot-card', displayState(robot)]" :style="{ '--robot': colors[robot.id] }">
                         <div class="robot-top">
@@ -254,16 +282,16 @@ onUnmounted(() => {
 
             <section class="panel control-panel">
                 <div class="control-description"><p class="eyebrow">MISSION STATUS</p><h2>{{ summary }}</h2><p>{{ active ? '작업 ' + active.id.slice(0, 8) + ' · ' + duration(active) : '한 번에 한 대씩 고정 목표로 이동합니다.' }}</p></div>
-                <div class="action-buttons"><button class="stop" :disabled="!active || busy || !!pending" @click="stopActive">현재 로봇 정지 요청</button></div>
+                <div class="action-buttons"><button v-if="isDemo" :disabled="busy" @click="resetDemo">데모 초기화</button><button class="stop" :disabled="!active || busy || !!pending" @click="stopActive">현재 로봇 정지 요청</button></div>
                 <div v-if="pending && !busy" class="pending" role="status">이전 요청 결과 확인이 필요합니다. <button @click="sendPending">같은 요청 재확인</button></div>
                 <p v-if="commandError" class="command-error" role="alert">{{ commandError }}</p>
-                <p class="control-footnote">도착은 Nav2의 성공 결과와 실제 위치를 모두 수신한 뒤 확정됩니다. 정지 요청은 물리 비상정지 장치가 아닙니다.</p>
+                <p class="control-footnote">{{ isDemo ? '약 12초 동안 전달 대기 → 이동 → 공용 통로 대기 → 도착과 로그 생성을 자동 재현합니다.' : '도착은 Nav2의 성공 결과와 실제 위치를 모두 수신한 뒤 확정됩니다. 정지 요청은 물리 비상정지 장치가 아닙니다.' }}</p>
             </section>
 
             <section class="bottom-grid">
                 <article class="panel history-panel">
                     <div class="panel-title"><div><p class="eyebrow">RECENT RUNS</p><h2>주행 기록</h2></div><button class="text-button" @click="selectRun(null)">현재 작업 보기</button></div>
-                    <div v-if="!history.length" class="empty">아직 실제 주행 기록이 없습니다.</div>
+                    <div v-if="!history.length" class="empty">{{ isDemo ? '로봇의 주행 시작 버튼을 눌러 샘플 기록을 만드세요.' : '아직 실제 주행 기록이 없습니다.' }}</div>
                     <button v-for="run in history" :key="run.id" class="history-row" :class="{ selected: selected === run.id }" @click="selectRun(run)">
                         <span class="run-id">{{ run.robots?.[0]?.robot_id || '—' }}<small>{{ formatTime(run.created_at) }}</small></span>
                         <span>{{ labels[run.status] }}</span><span>{{ duration(run) }} ›</span>
@@ -271,7 +299,7 @@ onUnmounted(() => {
                 </article>
                 <article class="panel events-panel">
                     <div class="panel-title"><div><p class="eyebrow">ACTIVITY LOG</p><h2>주행 이벤트</h2></div><span class="tag">{{ shownRun?.id.slice(0, 8) || '대기' }}</span></div>
-                    <div v-if="!events.length" class="empty">주행을 시작하면 실제 상태 변화가 기록됩니다.</div>
+                    <div v-if="!events.length" class="empty">주행을 시작하면 {{ isDemo ? '샘플 상태 변화' : '실제 상태 변화' }}가 기록됩니다.</div>
                     <div class="event-list"><div v-for="event in [...events].reverse()" :key="event.id" class="event-row"><time>{{ formatTime(event.occurred_at) }}</time><span class="event-dot" :style="{ background: colors[event.robot_id] || '#70838a' }"></span><div><b v-if="event.robot_id">{{ event.robot_id }} · </b>{{ event.message }}</div></div></div>
                     <div v-if="shownRun?.robots" class="results">
                         <span v-for="entry in shownRun.robots" :key="entry.robot_id">{{ entry.robot_id }} <b>{{ labels[entry.state] }}</b><small v-if="entry.result?.received_at">결과 수신 {{ formatTime(entry.result.received_at) }}</small></span>
@@ -279,7 +307,7 @@ onUnmounted(() => {
                 </article>
             </section>
         </main>
-        <footer><span>PINKY FLEET CONTROL / REAL ROBOT</span><span>고정 목표 · 순차 주행</span></footer>
+        <footer><span>PINKY FLEET CONTROL / {{ isDemo ? 'PRESENTATION DEMO' : 'REAL ROBOT' }}</span><span>고정 목표 · 순차 주행</span></footer>
     </div>
 </template>
 

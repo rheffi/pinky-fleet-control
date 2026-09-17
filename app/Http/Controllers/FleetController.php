@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 class FleetController extends Controller
 {
     public function __construct(
-        private snapshot $fleet,
+        private FleetService $fleet,
         private DisplayMap $displayMap,
     ) {}
 
@@ -37,6 +37,11 @@ class FleetController extends Controller
     public function snapshot()
     {
         return $this->fleet->snapshot();
+    }
+
+    public function demoReset()
+    {
+        return response()->json($this->fleet->resetDemo());
     }
 
     public function start(Request $request, string $robot)
@@ -64,7 +69,12 @@ class FleetController extends Controller
 
             return [
                 ...$this->fleet->meta($state),
-                'runs' => FleetRun::with('robots')->latest()->orderByDesc('id')->limit($data['limit'] ?? 20)->get(),
+                'runs' => FleetRun::with('robots')
+                    ->where('mode', config('fleet.mode'))
+                    ->latest()
+                    ->orderByDesc('id')
+                    ->limit($data['limit'] ?? 20)
+                    ->get(),
             ];
         });
     }

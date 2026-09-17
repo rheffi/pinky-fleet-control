@@ -57,6 +57,10 @@
     font-weight: 800;
     letter-spacing: .5px;
 }
+.real-badge.demo {
+    color: #9a5b12;
+    background: #fff0d9;
+}
 main {
     max-width: 1320px;
     margin: auto;
@@ -105,6 +109,14 @@ main {
     color: #1b735c;
     font-weight: 800;
     white-space: nowrap;
+}
+.real-note.demo {
+    color: #75572e;
+    background: #fff7e9;
+    border-color: #f2dfbf;
+}
+.real-note.demo span {
+    color: #a86616;
 }
 .eyebrow {
     margin: 0 0 8px;
@@ -161,6 +173,18 @@ h3 {
 .occupancy-map {
     image-rendering: pixelated;
 }
+.planned-route {
+    opacity: .42;
+    stroke-width: 2;
+    stroke-dasharray: 4 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.planned-route.active {
+    opacity: .92;
+    stroke-width: 3;
+    stroke-dasharray: none;
+}
 .map-footer {
     display: flex;
     align-items: center;
@@ -210,6 +234,10 @@ h3 {
     background: #fbfefd;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--robot) 30%, transparent);
 }
+.robot-card.waiting {
+    background: #fffaf1;
+    box-shadow: 0 0 0 2px #f1c77c66;
+}
 .robot-card.arrived {
     background: #f5fcf9;
     border-color: #8bcbb6;
@@ -253,6 +281,10 @@ h3 {
 .robot-card.arrived .state-pill {
     color: #187252;
     background: #dff4e9;
+}
+.robot-card.waiting .state-pill {
+    color: #9a6419;
+    background: #ffedca;
 }
 .robot-card.failed .state-pill,
 .robot-card.offline .state-pill {

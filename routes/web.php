@@ -11,6 +11,7 @@ Route::prefix('api/v1')->middleware(FleetMutation::class)->group(function () {
     $controller = FleetController::class;
     Route::get('bootstrap', [$controller, 'bootstrap']);
     Route::get('snapshot', [$controller, 'snapshot']);
+    Route::post('demo/reset', [$controller, 'demoReset']);
     Route::get('runs', [$controller, 'index']);
     Route::post('robots/{robot}/start', [$controller, 'start']);
     Route::get('runs/{id}', [$controller, 'show'])->whereUuid('id');

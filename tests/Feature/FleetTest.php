@@ -9,6 +9,7 @@ use App\Models\Robot;
 use App\Models\RunEvent;
 use Database\Seeders\FleetSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -128,6 +129,70 @@ class FleetTest extends TestCase
             ->assertJsonPath('robots.0.pose.x_m', 1.39)
             ->assertJsonPath('robots.0.connection_state', 'online');
         $this->assertNotNull(Robot::findOrFail('62b2')->received_at);
+    }
+
+    public function test_demo_mode_populates_three_robots_and_generates_a_complete_run_timeline(): void
+    {
+        config()->set('fleet.mode', 'demo');
+        $startedAt = Carbon::parse('2026-09-17 12:00:00');
+        Carbon::setTestNow($startedAt);
+
+        try {
+            $this->getJson('/api/v1/bootstrap')
+                ->assertOk()
+                ->assertJsonPath('mode', 'demo')
+                ->assertJsonCount(3, 'robots')
+                ->assertJsonPath('robots.0.goal_configured', true)
+                ->assertJsonPath('robots.0.planned_path.0.map_id', 'cbs-map');
+
+            $this->getJson('/api/v1/snapshot')
+                ->assertOk()
+                ->assertJsonPath('mode', 'demo')
+                ->assertJsonPath('robots.0.connection_state', 'online')
+                ->assertJsonPath('robots.1.connection_state', 'online')
+                ->assertJsonPath('robots.2.connection_state', 'online');
+
+            $runId = $this->start('62b2')
+                ->assertCreated()
+                ->assertJsonPath('run.mode', 'demo')
+                ->assertJsonPath('run.robots.0.path_source', 'demo')
+                ->json('run.id');
+
+            Carbon::setTestNow($startedAt->copy()->addSeconds(2));
+            $this->getJson('/api/v1/snapshot')
+                ->assertJsonPath('active_run.status', 'running')
+                ->assertJsonPath('robots.0.motion_state', 'moving');
+
+            Carbon::setTestNow($startedAt->copy()->addSeconds(6));
+            $this->getJson('/api/v1/snapshot')
+                ->assertJsonPath('robots.0.motion_state', 'waiting');
+
+            Carbon::setTestNow($startedAt->copy()->addSeconds(8));
+            $this->getJson('/api/v1/snapshot')
+                ->assertJsonPath('robots.0.motion_state', 'moving');
+
+            Carbon::setTestNow($startedAt->copy()->addSeconds(13));
+            $this->getJson('/api/v1/snapshot')
+                ->assertJsonPath('active_run', null)
+                ->assertJsonPath('robots.0.motion_state', 'arrived');
+
+            $this->getJson('/api/v1/runs/'.$runId)
+                ->assertJsonPath('run.status', 'completed')
+                ->assertJsonPath('run.robots.0.result.source', 'demo')
+                ->assertJsonPath('run.robots.0.result.outcome', 'succeeded');
+            $this->assertEqualsCanonicalizing(
+                ['arrived', 'moving', 'queued', 'resumed', 'waiting'],
+                RunEvent::where('run_id', $runId)->pluck('type')->all(),
+            );
+
+            $this->command('demo/reset', [])
+                ->assertOk()
+                ->assertJsonPath('reset', true);
+            $this->assertSame(0, FleetRun::where('mode', 'demo')->count());
+            $this->assertSame(['idle'], Robot::pluck('motion_state')->unique()->values()->all());
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_one_robot_run_finishes_only_after_nav2_success_with_arrival_pose(): void
